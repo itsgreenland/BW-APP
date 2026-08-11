@@ -1,0 +1,9 @@
+{
+  "name": "bw-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Beauty World staff platform — App #1: Shift Task List",
+  "engines": {
+    "node": "20.x"
+  }
+}

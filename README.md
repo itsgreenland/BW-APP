@@ -51,25 +51,44 @@ _Sources: Connecteam developer docs (`developer.connecteam.com`), Connecteam Hel
 
 ## Roadmap
 
-**Phase 1 — Task List app (in progress)**
-Prototype front-end complete. Staff + manager views, sign-off, editable checklists.
+**Phase 1 — Task List prototype** ✅ done
+Front-end complete: staff + manager views, sign-off, editable checklists (`index.html`).
 
-**Phase 2 — Hosting + accounts + sync**
-Backend + database so all 4 stores share data live; staff & manager logins; manager
-sees crews across locations. (Requires a host — small setup, possible small monthly cost.)
+**Phase 2 — Hosting + Connecteam key verification** ← in progress (Lane A)
+Deploy to Vercel; verify the Connecteam key works end-to-end via a live connection check.
 
-**Phase 3 — Connecteam schedule feed**
-Pull the day's schedule, auto-assign each store/shift checklist to the scheduled
-employee, and notify only those people (in-app or SMS). Webhook keeps it in sync.
+**Phase 3 — Shared database + logins + auto-assignment**
+All 4 stores share data live; staff & manager logins; the day's checklist auto-assigns
+to whoever Connecteam has scheduled, and only those people get pinged. Webhook keeps sync.
 
 **Phase 4 — More apps under the same roof**
 The task list is app #1; the platform is built to add more.
 
 ---
 
-## Run the prototype
-Open `index.html` in any browser, or serve locally:
-```
-python3 -m http.server 8000   # then visit http://localhost:8000
-```
-Demo manager PIN: **1234**. Store and staff names in `index.html` are placeholders — rename them to your real locations and team.
+## Lane A — hosting + connection check (what's built)
+
+- `api/connecteam-health.js` — serverless function that calls Connecteam with the key
+  from the `CONNECTEAM_API_KEY` secret and reports connect / read-schedules / read-shifts /
+  read-users status. **The key is read server-side only and is never sent to the browser.**
+- `connection-check.html` — one-button page that runs the check and shows plain-English
+  green/red results plus the schedule IDs we'll map to each store.
+
+### Deploy it (all clicks, ~15 min)
+1. Go to **vercel.com** → sign up with **Continue with GitHub** (grant access to `itsgreenland/bw-app`).
+2. **Add New → Project → Import** `bw-app`.
+3. In **Settings → Git → Production Branch**, set the branch to `claude/retail-task-list-app-s8qod1` (where this code lives). Deploy.
+4. **Settings → Environment Variables → Add:**
+   - Key: `CONNECTEAM_API_KEY`
+   - Value: *(paste your Connecteam API key)* — scope: **All Environments**. Save.
+   - ⚠️ Paste it here, in Vercel's secret box — never into code, chat, or the repo.
+5. **Deployments → ⋯ → Redeploy** so the key loads.
+6. Open **`https://<your-app>.vercel.app/connection-check.html`** and tap **Run the check**.
+   - All green → the key works; we build auto-assignment next.
+   - A red step → the page tells you exactly what to fix (usually a key permission in Connecteam).
+
+The task app itself is at **`https://<your-app>.vercel.app/index.html`**.
+
+## Run the prototype locally
+Open `index.html` in any browser, or `python3 -m http.server 8000`.
+Demo manager PIN: **1234**. Store/staff names in `index.html` are placeholders — rename to your real ones.

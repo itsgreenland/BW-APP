@@ -1,0 +1,147 @@
+<title>Beauty World — Connecteam Connection Check</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<style>
+  :root {
+    --brand:#6d2e5b; --brand-ink:#4c1f40; --accent:#b8891f; --accent-soft:#f3e6c4;
+    --ground:#faf6f4; --surface:#fff; --surface-2:#f4edea; --ink:#241e22; --ink-soft:#6b5f66;
+    --line:#e7dcd8; --good:#1f8a52; --good-soft:#dcf1e5; --bad:#b3341f; --bad-soft:#f7ddd6;
+    --shadow:0 1px 2px rgba(36,30,34,.06),0 8px 24px rgba(36,30,34,.06); --radius:14px;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --brand:#d98cc4; --brand-ink:#eab6dc; --accent:#e5b64a; --accent-soft:#3a2f18;
+    --ground:#171317; --surface:#211b20; --surface-2:#2a232a; --ink:#f3ebef; --ink-soft:#b6a7b0;
+    --line:#392f38; --good:#55c98a; --good-soft:#17331f; --bad:#e5765f; --bad-soft:#3a1c16;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }}
+  :root[data-theme="dark"]{
+    --brand:#d98cc4; --brand-ink:#eab6dc; --accent:#e5b64a; --accent-soft:#3a2f18;
+    --ground:#171317; --surface:#211b20; --surface-2:#2a232a; --ink:#f3ebef; --ink-soft:#b6a7b0;
+    --line:#392f38; --good:#55c98a; --good-soft:#17331f; --bad:#e5765f; --bad-soft:#3a1c16;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+  .wrap{max-width:560px;margin:0 auto;padding:28px 16px 64px}
+  .head{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+  .logo{width:40px;height:40px;border-radius:11px;background:linear-gradient(150deg,var(--brand),var(--brand-ink));
+    color:#fff;display:grid;place-items:center;font-weight:800;font-size:15px;box-shadow:var(--shadow)}
+  h1{font-size:19px;margin:0}
+  h1 small{display:block;font-weight:500;color:var(--ink-soft);font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+  .status{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .status .badge{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;flex:0 0 auto;
+    background:var(--surface-2);font-size:22px}
+  .status .badge.good{background:var(--good-soft)} .status .badge.bad{background:var(--bad-soft)}
+  .status h2{margin:0;font-size:17px}
+  .status p{margin:2px 0 0;font-size:13.5px;color:var(--ink-soft)}
+  ul.steps{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:10px}
+  ul.steps li{display:flex;gap:11px;align-items:flex-start;font-size:14.5px}
+  .mark{width:22px;height:22px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;font-size:13px;color:#fff;margin-top:1px}
+  .mark.ok{background:var(--good)} .mark.no{background:var(--bad)} .mark.dim{background:var(--line);color:var(--ink-soft)}
+  .step-t{font-weight:600} .step-d{color:var(--ink-soft);font-size:13px;margin-top:1px}
+  .hint{margin-top:18px;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));
+    border-radius:12px;padding:13px 15px;font-size:13.5px;color:var(--brand-ink)}
+  .btn{margin-top:20px;width:100%;border:0;border-radius:11px;background:var(--brand);color:#fff;
+    font:inherit;font-weight:700;font-size:15px;padding:13px;cursor:pointer}
+  .btn:hover{background:var(--brand-ink)} .btn:disabled{opacity:.6;cursor:default}
+  .schedules{margin-top:16px;border-top:1px dashed var(--line);padding-top:14px}
+  .schedules .lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);font-weight:700;margin-bottom:8px}
+  .schedules code{background:var(--surface-2);padding:2px 7px;border-radius:6px;font-size:12.5px}
+  .schedules div{margin-bottom:5px;font-size:14px}
+  .foot{margin-top:22px;text-align:center;font-size:12.5px;color:var(--ink-soft)}
+  .foot a{color:var(--brand);text-decoration:none;font-weight:600}
+  .spin{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;
+    border-radius:50%;animation:s .7s linear infinite;vertical-align:-3px;margin-right:8px}
+  @keyframes s{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="logo">BW</div>
+    <h1>Connection Check<small>Beauty World × Connecteam</small></h1>
+  </div>
+
+  <div class="card">
+    <div class="status">
+      <div class="badge" id="badge">⏳</div>
+      <div>
+        <h2 id="statusTitle">Checking…</h2>
+        <p id="statusSub">Talking to Connecteam</p>
+      </div>
+    </div>
+
+    <ul class="steps" id="steps"></ul>
+    <div class="hint" id="hint" style="display:none"></div>
+    <div class="schedules" id="schedules" style="display:none">
+      <div class="lbl">Schedules found (we'll map these to your 4 stores)</div>
+      <div id="schedList"></div>
+    </div>
+
+    <button class="btn" id="again"><span id="againLabel">Run the check</span></button>
+  </div>
+
+  <p class="foot">This never shows your API key — it stays locked on the server. · <a href="/index.html">Back to the task app</a></p>
+</div>
+
+<script>
+  var badge = document.getElementById("badge");
+  var statusTitle = document.getElementById("statusTitle");
+  var statusSub = document.getElementById("statusSub");
+  var stepsEl = document.getElementById("steps");
+  var hintEl = document.getElementById("hint");
+  var schedWrap = document.getElementById("schedules");
+  var schedList = document.getElementById("schedList");
+  var btn = document.getElementById("again");
+  var btnLabel = document.getElementById("againLabel");
+
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+
+  function run() {
+    btn.disabled = true;
+    btnLabel.innerHTML = '<span class="spin"></span>Checking…';
+    badge.className = "badge"; badge.textContent = "⏳";
+    statusTitle.textContent = "Checking…"; statusSub.textContent = "Talking to Connecteam";
+    stepsEl.innerHTML = ""; hintEl.style.display = "none"; schedWrap.style.display = "none";
+
+    fetch("/api/connecteam-health", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(render)
+      .catch(function (e) {
+        badge.className = "badge bad"; badge.textContent = "!";
+        statusTitle.textContent = "Couldn't run the check";
+        statusSub.textContent = "The connection-check function isn't responding yet. If you just deployed, give it a minute, or make sure the deploy finished.";
+      })
+      .finally(function () {
+        btn.disabled = false; btnLabel.textContent = "Run the check again";
+      });
+  }
+
+  function render(out) {
+    var allGood = out.ok;
+    badge.className = "badge " + (allGood ? "good" : "bad");
+    badge.textContent = allGood ? "✓" : "!";
+    statusTitle.textContent = allGood ? "All connected" : "Needs a small fix";
+    statusSub.textContent = allGood ? "Beauty World can read your Connecteam schedule." : "Almost there — see the steps below.";
+
+    (out.steps || []).forEach(function (s) {
+      var li = document.createElement("li");
+      li.innerHTML = '<span class="mark ' + (s.ok ? "ok" : "no") + '">' + (s.ok ? "✓" : "✕") + '</span>' +
+        '<span><span class="step-t">' + esc(s.label) + '</span>' +
+        (s.detail ? '<span class="step-d">' + esc(s.detail) + "</span>" : "") + "</span>";
+      stepsEl.appendChild(li);
+    });
+
+    if (out.hint) { hintEl.style.display = "block"; hintEl.textContent = out.hint; }
+
+    if (out.schedules && out.schedules.length) {
+      schedWrap.style.display = "block";
+      schedList.innerHTML = out.schedules.map(function (s) {
+        return "<div>" + esc(s.name) + " &nbsp; <code>id: " + esc(s.id) + "</code></div>";
+      }).join("");
+    }
+  }
+
+  run();
+</script>
