@@ -70,11 +70,19 @@ module.exports = async (req, res) => {
 
   try {
     if (action === "health") {
-      if (!kv.configured) return send({ ok: false, db: "not connected", hint: "Create the database in Vercel (Storage tab), then redeploy." });
+      const keys = kv.candidateKeys();
+      if (!kv.configured) {
+        return send({
+          ok: false, db: "not connected", envKeysSeen: keys,
+          hint: keys.length
+            ? ("Found database settings (" + keys.join(", ") + ") but not a usable REST URL + token pair — or the app hasn't redeployed since they were added.")
+            : "No database settings found yet. In Vercel: create the Upstash database, connect it to this project, then redeploy.",
+        });
+      }
       const stamp = String(Date.now());
       await kv.kvSet("bw:health", stamp);
       const back = await kv.kvGet("bw:health");
-      return send({ ok: back === stamp, db: back === stamp ? "connected" : "error" });
+      return send({ ok: back === stamp, db: back === stamp ? "connected" : "error", envKeysSeen: keys });
     }
 
     if (action === "get-templates") {

@@ -1,20 +1,40 @@
 // Tiny database helper using Upstash Redis over its REST API — no npm packages,
-// so it works with our zero-build setup. Provisioned free from the Vercel
-// dashboard (Storage → Upstash), which sets these two environment variables:
-//   UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN
-// (Vercel's KV integration sets KV_REST_API_URL / KV_REST_API_TOKEN — we accept
-// either naming so it works whichever way the store is created.)
+// so it works with our zero-build setup.
+//
+// Different Vercel/Upstash integrations name the connection variables
+// differently (UPSTASH_REDIS_REST_URL, KV_REST_API_URL, a custom prefix, ...),
+// so instead of hard-coding one name we auto-detect any REST url/token pair.
 
-const REST_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-const REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+function findCreds() {
+  const e = process.env;
+  let url = e.UPSTASH_REDIS_REST_URL || e.KV_REST_API_URL || e.REDIS_REST_URL || null;
+  let token = e.UPSTASH_REDIS_REST_TOKEN || e.KV_REST_API_TOKEN || e.REDIS_REST_TOKEN || null;
 
-const configured = !!(REST_URL && REST_TOKEN);
+  if (!url) {
+    const k = Object.keys(e).find((k) => /(REDIS|KV|UPSTASH|STORAGE)/i.test(k) && /REST/i.test(k) && /URL$/i.test(k));
+    if (k) url = e[k];
+  }
+  if (!token) {
+    const ks = Object.keys(e).filter((k) => /(REDIS|KV|UPSTASH|STORAGE)/i.test(k) && /REST/i.test(k) && /TOKEN$/i.test(k));
+    const k = ks.find((x) => !/READ.?ONLY/i.test(x)) || ks[0]; // prefer the read-write token
+    if (k) token = e[k];
+  }
+  return { url: url, token: token };
+}
+
+// Names only (never values) of settings that look database-related — for diagnostics.
+function candidateKeys() {
+  return Object.keys(process.env).filter((k) => /(REDIS|KV|UPSTASH|STORAGE)/i.test(k));
+}
+
+const creds = findCreds();
+const configured = !!(creds.url && creds.token);
 
 async function cmd(args) {
   if (!configured) throw new Error("Database is not connected yet.");
-  const res = await fetch(REST_URL, {
+  const res = await fetch(creds.url, {
     method: "POST",
-    headers: { Authorization: "Bearer " + REST_TOKEN, "content-type": "application/json" },
+    headers: { Authorization: "Bearer " + creds.token, "content-type": "application/json" },
     body: JSON.stringify(args),
   });
   const j = await res.json();
@@ -31,4 +51,4 @@ async function kvGetJSON(key, fallback) {
 }
 async function kvSetJSON(key, obj) { return kvSet(key, JSON.stringify(obj)); }
 
-module.exports = { configured, cmd, kvGet, kvSet, kvGetJSON, kvSetJSON };
+module.exports = { configured, candidateKeys, cmd, kvGet, kvSet, kvGetJSON, kvSetJSON };
