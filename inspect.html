@@ -1,0 +1,82 @@
+<title>Beauty World — Connecteam Data Inspector</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<style>
+  :root{--brand:#6d2e5b;--brand-ink:#4c1f40;--accent:#b8891f;--ground:#faf6f4;--surface:#fff;--surface-2:#f4edea;--ink:#241e22;--ink-soft:#6b5f66;--line:#e7dcd8;--good:#1f8a52;--good-soft:#dcf1e5;--shadow:0 1px 2px rgba(36,30,34,.06),0 8px 24px rgba(36,30,34,.06)}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--brand:#d98cc4;--brand-ink:#eab6dc;--accent:#e5b64a;--ground:#171317;--surface:#211b20;--surface-2:#2a232a;--ink:#f3ebef;--ink-soft:#b6a7b0;--line:#392f38;--good:#55c98a;--good-soft:#17331f;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35)}}
+  :root[data-theme="dark"]{--brand:#d98cc4;--brand-ink:#eab6dc;--accent:#e5b64a;--ground:#171317;--surface:#211b20;--surface-2:#2a232a;--ink:#f3ebef;--ink-soft:#b6a7b0;--line:#392f38;--good:#55c98a;--good-soft:#17331f;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35)}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+  .wrap{max-width:640px;margin:0 auto;padding:26px 16px 64px}
+  h1{font-size:19px;margin:0 0 4px}
+  .sub{color:var(--ink-soft);font-size:13px;margin-bottom:18px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+  .card h2{margin:0 0 10px;font-size:15px}
+  .verdict{border-radius:12px;padding:14px 16px;margin-bottom:16px;font-size:14.5px}
+  .verdict.yes{background:var(--good-soft);border:1px solid color-mix(in srgb,var(--good) 35%,var(--line))}
+  .verdict.no{background:var(--surface-2);border:1px solid var(--line)}
+  .chip{display:inline-block;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600;margin:0 6px 6px 0}
+  .chip.hot{background:color-mix(in srgb,var(--accent) 22%,var(--surface));border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+  .kv{font-size:13px;border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+  .kv div{display:flex;gap:8px;padding:2px 0}
+  .kv .k{color:var(--ink-soft);min-width:120px;flex:0 0 auto}
+  .kv .v{word-break:break-word}
+  .k.hot{color:var(--accent);font-weight:700}
+  code{background:var(--surface-2);padding:1px 6px;border-radius:6px;font-size:12.5px}
+  .state{padding:40px;text-align:center;color:var(--ink-soft)}
+  .foot{margin-top:18px;text-align:center;font-size:12.5px;color:var(--ink-soft)}.foot a{color:var(--brand);text-decoration:none;font-weight:600}
+</style>
+
+<div class="wrap">
+  <h1>Connecteam Data Inspector</h1>
+  <div class="sub">One-time look at what your Connecteam data carries — so we can find "key holder vs cashier."</div>
+  <div id="out"><div class="state">Reading your Connecteam data…</div></div>
+  <p class="foot"><a href="/index.html">Task app</a> · <a href="/crew.html">Today's crew</a></p>
+</div>
+
+<script>
+  var HOT = /(job|position|title|role|type|group|team|cashier|key.?holder|manager)/i;
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+
+  function fields(keys){
+    return keys.map(function(k){ return '<span class="chip'+(HOT.test(k)?" hot":"")+'">'+esc(k)+"</span>"; }).join("");
+  }
+  function kvBlock(obj){
+    return '<div class="kv">'+Object.keys(obj).map(function(k){
+      return '<div><span class="k'+(HOT.test(k)?" hot":"")+'">'+esc(k)+'</span><span class="v">'+esc(obj[k])+"</span></div>";
+    }).join("")+"</div>";
+  }
+
+  fetch("/api/inspect",{cache:"no-store"}).then(function(r){return r.json();}).then(function(o){
+    var out=document.getElementById("out");
+    if(!o.ok){ out.innerHTML='<div class="state">'+esc(o.error||"Couldn\'t read data.")+"</div>"; return; }
+
+    var html="";
+    var hasPositions = o.positionsDefined && o.positionsDefined.length;
+
+    html += '<div class="verdict '+(hasPositions?"yes":"no")+'">'+
+      (hasPositions
+        ? "✅ <b>Positions are defined in your scheduler.</b> If \"Key Holder\" and \"Cashier\" are in the list below, we can route tasks by role."
+        : "Your scheduler didn't return a separate list of positions — so key holder/cashier is likely a <b>field on the person</b> or a <b>group</b>. Check the highlighted fields below.")+"</div>";
+
+    if(o.positionsDefined){
+      html += '<div class="card"><h2>Positions / jobs defined in your scheduler</h2>'+
+        (hasPositions ? o.positionsDefined.map(function(j){return '<span class="chip hot">'+esc(j.title||"(untitled)")+"</span>";}).join("")
+                      : '<div class="sub">None returned.</div>')+"</div>";
+    }
+
+    html += '<div class="card"><h2>What each employee record carries</h2>'+
+      '<div class="sub">Highlighted = might hold their position/role.</div>'+
+      fields(o.employeeRecordFields||[])+
+      ((o.sampleEmployees&&o.sampleEmployees[0])?'<h2 style="margin-top:14px;font-size:13px;">Example employee</h2>'+kvBlock(o.sampleEmployees[0]):"")+
+      "</div>";
+
+    html += '<div class="card"><h2>What each shift carries</h2>'+
+      fields(o.shiftFields||[])+
+      ((o.sampleShifts&&o.sampleShifts[0])?'<h2 style="margin-top:14px;font-size:13px;">Example shift</h2>'+kvBlock(o.sampleShifts[0]):"")+
+      "</div>";
+
+    out.innerHTML=html;
+  }).catch(function(){
+    document.getElementById("out").innerHTML='<div class="state">Couldn\'t reach the inspector. If you just deployed, give it a minute.</div>';
+  });
+</script>
