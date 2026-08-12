@@ -122,7 +122,7 @@
     var html = '<div class="grid">';
     out.stores.forEach(function (st) {
       html += '<div class="card"><h3>' + esc(st.store) +
-        (st.schedule ? ' <span class="sched">· ' + esc(st.schedule) + "</span>" : ' <span class="sched">· no matching schedule found</span>') +
+        (st.schedule ? ' <span class="sched">· ' + esc(st.schedule) + (st.matchedBy === "people" ? " (matched by staff)" : "") + "</span>" : ' <span class="sched">· no matching schedule found</span>') +
         "</h3>";
       html += shiftBlock("Morning shift", "☀️", st.morning || []);
       html += shiftBlock("Afternoon shift", "🌙", st.afternoon || []);
@@ -133,7 +133,9 @@
     if (out.allSchedules && out.allSchedules.length) {
       html += '<div class="ignored"><b>All schedules in your Connecteam</b> (for setup):<br>' +
         out.allSchedules.map(function (s) {
-          return "• " + esc(s.name) + " — " + s.shiftsToday + " shift(s) today" + (s.ignored ? " (treated as not-a-store)" : "");
+          return "• <b>" + esc(s.name) + "</b> — " + s.shiftsToday + " shift(s)" +
+            (s.people && s.people.length ? ": " + esc(s.people.join(", ")) : "") +
+            (s.ignored ? " (treated as not-a-store)" : "");
         }).join("<br>") + "</div>";
     }
     if (out.debug) {

@@ -14,7 +14,12 @@ const STORES = [
   { key: "rockwell", label: "Rockwell" },
 ];
 
-// Only these exact schedules are treated as "not a store".
+// If a schedule name doesn't obviously contain the store name, we fall back to
+// matching by the people known to work there (first-name fingerprint).
+const ROSTER = {
+  britton: ["abriana", "amara", "catalina", "mariah", "naila", "tayetta"],
+};
+
 function isIgnored(name) {
   const n = String(name || "").toLowerCase().trim();
   return n === "office" || n === "job scheduler" || n.indexOf("job scheduler") !== -1;
@@ -34,6 +39,32 @@ function pickArray(body, keys) {
   if (Array.isArray(node)) return node;
   for (const k of keys) if (node && Array.isArray(node[k])) return node[k];
   return [];
+}
+
+function pagingTotal(body) {
+  const p = (body && (body.paging || (body.data && body.data.paging))) || null;
+  if (p && typeof p.total === "number") return p.total;
+  if (body && typeof body.total === "number") return body.total;
+  return null;
+}
+
+// Page through a list endpoint using limit/offset (the common Connecteam shape).
+async function ctPaged(path, key, arrayKeys) {
+  const all = [];
+  const limit = 100;
+  let offset = 0;
+  for (let guard = 0; guard < 60; guard++) {
+    const sep = path.indexOf("?") === -1 ? "?" : "&";
+    const r = await ct(path + sep + "limit=" + limit + "&offset=" + offset, key);
+    if (!r.ok) break;
+    const arr = pickArray(r.body, arrayKeys);
+    all.push.apply(all, arr);
+    const total = pagingTotal(r.body);
+    if (arr.length < limit) break;
+    if (total != null && all.length >= total) break;
+    offset += limit;
+  }
+  return all;
 }
 
 function userName(u) {
@@ -88,15 +119,13 @@ module.exports = async (req, res) => {
   const date = (req.query && req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)) ? req.query.date : todayInTZ();
 
   try {
-    // 1) Users map (id -> name)
-    const ur = await ct("/users/v1/users?limit=500", key);
-    const users = pickArray(ur.body, ["users", "items", "results"]);
+    // 1) Users map (id -> name), paged
+    const users = await ctPaged("/users/v1/users", key, ["users", "items", "results"]);
     const nameById = {};
     users.forEach((u) => { const id = u.userId != null ? u.userId : u.id; if (id != null) nameById[String(id)] = userName(u); });
 
-    // 2) Schedules
-    const sr = await ct("/scheduler/v1/schedulers", key);
-    const schedules = pickArray(sr.body, ["schedulers", "items", "results"]);
+    // 2) Schedules, paged (this is the fix if some were being cut off)
+    const schedules = await ctPaged("/scheduler/v1/schedulers", key, ["schedulers", "items", "results"]);
 
     // 3) Fetch today's shifts for EVERY schedule (over-fetch window, filter to local date)
     const [y, m, d] = date.split("-").map(Number);
@@ -104,32 +133,60 @@ module.exports = async (req, res) => {
     const qStart = dayStartUtc - 12 * 3600;
     const qEnd = dayStartUtc + 36 * 3600;
 
-    const shiftsBySchedule = {};
+    const shiftsBySchedule = {};   // id -> [shift]
+    const peopleBySchedule = {};   // id -> Set(lowercase names)
     const allSchedules = [];
     const debug = { unclassifiedShiftKeys: null };
 
     for (const sc of schedules) {
       const id = sc.schedulerId != null ? sc.schedulerId : sc.id;
       const name = sc.name || sc.title || "(unnamed)";
-      const shr = await ct(`/scheduler/v1/schedulers/${id}/shifts?startTime=${qStart}&endTime=${qEnd}`, key);
-      const raw = pickArray(shr.body, ["shifts", "items", "results"]);
+      const raw = await ctPaged(`/scheduler/v1/schedulers/${id}/shifts?startTime=${qStart}&endTime=${qEnd}`, key, ["shifts", "items", "results"]);
       const todays = [];
+      const people = new Set();
       raw.forEach((s) => {
         const st = shiftStartUnix(s);
         if (st == null) { if (!debug.unclassifiedShiftKeys) debug.unclassifiedShiftKeys = Object.keys(s); return; }
-        if (localParts(st).date === date) todays.push(s);
+        if (localParts(st).date !== date) return;
+        todays.push(s);
+        shiftUserIds(s).forEach((uid) => { const nm = nameById[String(uid)]; if (nm) people.add(nm.toLowerCase()); });
       });
       shiftsBySchedule[String(id)] = todays;
-      allSchedules.push({ name: name, id: id, shiftsToday: todays.length, ignored: isIgnored(name) });
+      peopleBySchedule[String(id)] = people;
+      allSchedules.push({
+        name: name, id: id, shiftsToday: todays.length, ignored: isIgnored(name),
+        people: Array.from(people).map(function (n) { return n.replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }),
+      });
     }
 
-    // 4) Match each store to a schedule and split into morning / afternoon
+    // helper: does a schedule's people match a store roster?
+    function rosterMatch(schedId, roster) {
+      const people = peopleBySchedule[String(schedId)];
+      if (!people || !roster) return false;
+      for (const r of roster) {
+        for (const person of people) { if (person.indexOf(r) !== -1) return true; }
+      }
+      return false;
+    }
+
+    // 4) Match each store to a schedule (by name, else by roster) and split shifts
     const storeResults = STORES.map((store) => {
-      const match = schedules.find((sc) => {
+      let match = schedules.find((sc) => {
         const nm = String(sc.name || sc.title || "").toLowerCase();
         return !isIgnored(nm) && nm.indexOf(store.key) !== -1;
       });
-      const result = { store: store.label, schedule: null, morning: [], afternoon: [], totalShifts: 0 };
+      let how = match ? "name" : null;
+      if (!match && ROSTER[store.key]) {
+        match = schedules.find((sc) => {
+          const nm = String(sc.name || sc.title || "").toLowerCase();
+          if (isIgnored(nm)) return false;
+          const id = sc.schedulerId != null ? sc.schedulerId : sc.id;
+          return rosterMatch(id, ROSTER[store.key]);
+        });
+        if (match) how = "people";
+      }
+
+      const result = { store: store.label, schedule: null, matchedBy: how, morning: [], afternoon: [], totalShifts: 0 };
       if (!match) return result;
 
       const sid = String(match.schedulerId != null ? match.schedulerId : match.id);
@@ -146,11 +203,8 @@ module.exports = async (req, res) => {
     });
 
     send({
-      ok: true,
-      date: date,
-      timezone: TZ,
-      stores: storeResults,
-      allSchedules: allSchedules,
+      ok: true, date: date, timezone: TZ,
+      stores: storeResults, allSchedules: allSchedules,
       debug: debug.unclassifiedShiftKeys ? debug : undefined,
     });
   } catch (e) {
