@@ -82,6 +82,16 @@
     <button class="btn" id="again"><span id="againLabel">Run the check</span></button>
   </div>
 
+  <div class="card" style="margin-top:14px;">
+    <div class="status">
+      <div class="badge" id="dbBadge">⏳</div>
+      <div>
+        <h2 id="dbTitle">Database</h2>
+        <p id="dbSub">Checking the shared database…</p>
+      </div>
+    </div>
+  </div>
+
   <p class="foot">This never shows your API key — it stays locked on the server. · <a href="/index.html">Back to the task app</a></p>
 </div>
 
@@ -143,5 +153,19 @@
     }
   }
 
+  function checkDb() {
+    var b = document.getElementById("dbBadge"), t = document.getElementById("dbTitle"), s = document.getElementById("dbSub");
+    fetch("/api/data?action=health", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (o) {
+        if (o.ok) { b.className = "badge good"; b.textContent = "✓"; t.textContent = "Database connected"; s.textContent = "The shared database is live — all stores will sync."; }
+        else { b.className = "badge bad"; b.textContent = "!"; t.textContent = "Database not connected yet"; s.textContent = o.hint || "Create the database in Vercel, then redeploy."; }
+      })
+      .catch(function () {
+        b.className = "badge bad"; b.textContent = "!"; t.textContent = "Database not connected yet"; s.textContent = "Create the database in Vercel (Storage tab), then redeploy.";
+      });
+  }
+
   run();
+  checkDb();
 </script>
