@@ -352,11 +352,10 @@
     </div>
   </section>
 
-  <p class="note">
-    <b>Prototype</b> — data is saved on this device only. In the live version, checklists sync across all
-    locations and the day's checklist auto-assigns to whoever Connecteam has scheduled.<br />
-    Manager PIN for this demo: <b>1234</b>
+  <p class="note" id="statusNote">
+    Checking connection…
   </p>
+  <p class="note" style="margin-top:10px;">Manager PIN for now: <b>1234</b></p>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -365,12 +364,12 @@
 (function () {
   "use strict";
 
-  // ---- Config (placeholders — rename to your real stores/staff) ----
-  var STORES = ["Beauty World — Store 1", "Beauty World — Store 2", "Beauty World — Store 3", "Beauty World — Store 4"];
-  var STAFF  = ["Aaliyah", "Bianca", "Carmen", "Destiny", "Erica", "Jasmine", "Keisha", "Monique", "Nia", "Tanya"];
+  // ---- Config (your 4 stores; staff names come live from Connecteam) ----
+  var STORES = ["Hefner", "Britton", "Meridian", "Rockwell"];
   var DAYS   = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   var DAYNAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   var PIN = "1234";
+  var lastShared = null; // did the shared database answer?
 
   var DEFAULTS = {
     morning: [
@@ -399,14 +398,13 @@
     ]
   };
 
-  // ---- Storage helpers ----
+  // ---- Local fallback storage (used only if the shared database is offline) ----
   function load(key, fallback) {
     try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
     catch (e) { return fallback; }
   }
   function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
-
-  function getTemplates() {
+  function localTemplates() {
     var t = load("bw_templates", null);
     if (!t) {
       t = {};
@@ -418,13 +416,49 @@
     }
     return t;
   }
-  function templateFor(dayKey, shift) {
-    var t = getTemplates();
-    return t[dayKey + "|" + shift] || [];
+
+  // ---- Shared data API (falls back to this device if the DB is offline) ----
+  async function apiGetTasks(store, date, shift) {
+    try {
+      var r = await fetch("/api/data?action=get-tasks&store=" + encodeURIComponent(store) + "&date=" + date + "&shift=" + shift, { cache: "no-store" });
+      var j = await r.json();
+      if (j.ok) { lastShared = true; return { tasks: j.tasks || [], signoffs: j.signoffs || {} }; }
+    } catch (e) {}
+    lastShared = false;
+    var t = localTemplates();
+    return { tasks: t[dayKeyFromISO(date) + "|" + shift] || DEFAULTS[shift] || [], signoffs: load("bw_prog::" + store + "|" + date + "|" + shift, {}) };
   }
-  function progressKey(store, date, shift) { return store + "|" + date + "|" + shift; }
-  function getProgress(store, date, shift) { return load("bw_prog::" + progressKey(store, date, shift), {}); }
-  function setProgress(store, date, shift, obj) { save("bw_prog::" + progressKey(store, date, shift), obj); }
+  async function apiSignoff(store, date, shift, index, done, by) {
+    try {
+      var r = await fetch("/api/data?action=signoff", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ store: store, date: date, shift: shift, index: index, done: done, by: by }) });
+      var j = await r.json();
+      if (j.ok) { lastShared = true; return j.signoffs || {}; }
+    } catch (e) {}
+    lastShared = false;
+    var key = "bw_prog::" + store + "|" + date + "|" + shift, s = load(key, {});
+    if (done) s[index] = { by: by, at: Date.now() }; else delete s[index];
+    save(key, s); return s;
+  }
+  async function apiGetTemplates() {
+    try {
+      var r = await fetch("/api/data?action=get-templates", { cache: "no-store" });
+      var j = await r.json();
+      if (j.ok && j.templates) { lastShared = true; return j.templates; }
+    } catch (e) {}
+    lastShared = false; return localTemplates();
+  }
+  async function apiSaveTemplates(t) {
+    try {
+      var r = await fetch("/api/data?action=save-templates", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ templates: t }) });
+      var j = await r.json();
+      if (j.ok) { lastShared = true; save("bw_templates", t); return true; }
+    } catch (e) {}
+    lastShared = false; save("bw_templates", t); return false;
+  }
+  async function apiSchedule(date) {
+    try { var r = await fetch("/api/schedule?date=" + date, { cache: "no-store" }); return await r.json(); }
+    catch (e) { return null; }
+  }
 
   // ---- State ----
   var state = {
@@ -459,27 +493,49 @@
   // ---- Populate selects ----
   (function initSelects() {
     STORES.forEach(function (s) { var o = el("option"); o.value = s; o.textContent = s; $("storeSel").appendChild(o); });
-    var ph = el("option"); ph.value = ""; ph.textContent = "Select your name…"; $("nameSel").appendChild(ph);
-    STAFF.forEach(function (s) { var o = el("option"); o.value = s; o.textContent = s; $("nameSel").appendChild(o); });
     DAYNAMES.forEach(function (nm, i) { var o = el("option"); o.value = DAYS[i]; o.textContent = nm; $("edDaySel").appendChild(o); });
     $("dateSel").value = state.date;
     $("mgrDate").value = state.date;
     $("edDaySel").value = state.edDay;
   })();
 
+  // ---- Load who's scheduled (staff names come from Connecteam) ----
+  async function loadCrew() {
+    var sel = $("nameSel"); sel.innerHTML = "";
+    var loading = el("option"); loading.value = ""; loading.textContent = "Loading who's on…"; sel.appendChild(loading);
+    var sched = await apiSchedule(state.date);
+    sel.innerHTML = "";
+    var names = [];
+    if (sched && sched.ok) {
+      var st = (sched.stores || []).filter(function (x) { return x.store === state.store; })[0];
+      if (st) {
+        var arr = state.shift === "morning" ? st.morning : st.afternoon;
+        names = (arr || []).filter(function (p) { return !p.open; }).map(function (p) { return p.name; });
+      }
+    }
+    var ph = el("option"); ph.value = "";
+    ph.textContent = names.length ? "Select your name…" : "Nobody scheduled — pick anyway…";
+    sel.appendChild(ph);
+    names.forEach(function (n) { var o = el("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
+    var man = el("option"); man.value = "__manual__"; man.textContent = "＋ Enter a name manually"; sel.appendChild(man);
+  }
+
   // ---- Employee: shift segment ----
+  function checklistOpen() { return !$("empChecklist").classList.contains("hidden"); }
   Array.prototype.forEach.call($("shiftSeg").children, function (btn) {
     btn.addEventListener("click", function () {
       state.shift = btn.getAttribute("data-shift");
       Array.prototype.forEach.call($("shiftSeg").children, function (b) { b.setAttribute("aria-pressed", b === btn ? "true" : "false"); });
-      renderChecklist();
+      loadCrew();
+      if (checklistOpen()) renderChecklist();
     });
   });
-  $("storeSel").addEventListener("change", function () { state.store = this.value; renderChecklist(); });
-  $("dateSel").addEventListener("change", function () { state.date = this.value; renderChecklist(); });
+  $("storeSel").addEventListener("change", function () { state.store = this.value; loadCrew(); if (checklistOpen()) renderChecklist(); });
+  $("dateSel").addEventListener("change", function () { state.date = this.value; loadCrew(); if (checklistOpen()) renderChecklist(); });
 
   $("startBtn").addEventListener("click", function () {
     var n = $("nameSel").value;
+    if (n === "__manual__") { n = (window.prompt("Enter your name:") || "").trim(); if (!n) return; }
     if (!n) { toast("Pick your name first"); return; }
     state.name = n;
     $("whoName").textContent = n;
@@ -491,23 +547,24 @@
     state.name = null;
     $("empChecklist").classList.add("hidden");
     $("empGate").classList.remove("hidden");
+    loadCrew();
   });
 
-  function renderChecklist() {
+  async function renderChecklist() {
     if (!state.name) return;
-    var dayKey = dayKeyFromISO(state.date);
-    var tasks = templateFor(dayKey, state.shift);
-    var prog = getProgress(state.store, state.date, state.shift);
     var list = $("taskList");
+    list.innerHTML = ""; list.appendChild(el("li", "empty", "Loading…"));
+    var data = await apiGetTasks(state.store, state.date, state.shift);
+    state.tasks = data.tasks; state.signoffs = data.signoffs || {};
     list.innerHTML = "";
 
-    if (!tasks.length) {
+    if (!state.tasks.length) {
       list.appendChild(el("li", "empty", "No tasks set for this day &amp; shift yet."));
     }
 
     var doneCount = 0;
-    tasks.forEach(function (task, i) {
-      var rec = prog[i];
+    state.tasks.forEach(function (task, i) {
+      var rec = state.signoffs[i];
       var isDone = !!rec;
       if (isDone) doneCount++;
       var li = el("li", "task" + (isDone ? " done" : ""));
@@ -520,27 +577,28 @@
       list.appendChild(li);
     });
 
-    var pct = tasks.length ? Math.round(doneCount / tasks.length * 100) : 0;
+    var total = state.tasks.length;
+    var pct = total ? Math.round(doneCount / total * 100) : 0;
     $("ring").style.setProperty("--p", pct);
     $("ringPct").textContent = pct + "%";
     $("clTitle").textContent = (state.shift === "morning" ? "Morning shift" : "Afternoon shift");
-    $("clSub").textContent = doneCount + " of " + tasks.length + " done";
+    $("clSub").textContent = doneCount + " of " + total + " done" + (lastShared === false ? " · saved on this device" : (lastShared ? " · synced" : ""));
 
     var banner = $("signoffBanner");
-    if (tasks.length && doneCount === tasks.length) {
+    if (total && doneCount === total) {
       banner.classList.add("show");
-      $("signoffText").textContent = "All " + tasks.length + " tasks signed off for " + state.store + " — " +
+      $("signoffText").textContent = "All " + total + " tasks signed off for " + state.store + " — " +
         (state.shift === "morning" ? "morning" : "afternoon") + " shift.";
     } else {
       banner.classList.remove("show");
     }
+    updateStatusNote();
   }
 
-  function toggleTask(i) {
-    var prog = getProgress(state.store, state.date, state.shift);
-    if (prog[i]) { delete prog[i]; }
-    else { prog[i] = { by: state.name, at: Date.now() }; }
-    setProgress(state.store, state.date, state.shift, prog);
+  async function toggleTask(i) {
+    var currently = !!(state.signoffs && state.signoffs[i]);
+    var res = await apiSignoff(state.store, state.date, state.shift, i, !currently, state.name);
+    state.signoffs = res || state.signoffs || {};
     renderChecklist();
   }
 
@@ -584,23 +642,34 @@
   $("mgrDate").addEventListener("change", renderOverview);
   $("mgrToday").addEventListener("click", function () { $("mgrDate").value = todayISO(); renderOverview(); });
 
-  function renderOverview() {
+  async function renderOverview() {
     var date = $("mgrDate").value || todayISO();
-    var dayKey = dayKeyFromISO(date);
     var grid = $("mgrGrid");
+    grid.innerHTML = '<div class="empty">Loading…</div>';
+    var sched = await apiSchedule(date);
+    function crewFor(store, shift) {
+      if (!sched || !sched.ok) return [];
+      var st = (sched.stores || []).filter(function (x) { return x.store === store; })[0];
+      if (!st) return [];
+      return (st[shift] || []).filter(function (p) { return !p.open; }).map(function (p) { return p.name; });
+    }
+    var data = await Promise.all(STORES.map(async function (store) {
+      var m = await apiGetTasks(store, date, "morning");
+      var a = await apiGetTasks(store, date, "afternoon");
+      return { store: store, shifts: { morning: m, afternoon: a } };
+    }));
     grid.innerHTML = "";
 
-    STORES.forEach(function (store) {
+    data.forEach(function (d) {
+      var store = d.store;
       var card = el("div", "store-card");
       var head = el("div", "store-head");
       head.appendChild(el("h3", null, escapeHtml(store)));
       var stat = el("div", "shift-stat");
-
       ["morning", "afternoon"].forEach(function (shift) {
-        var tasks = templateFor(dayKey, shift);
-        var prog = getProgress(store, date, shift);
-        var done = Object.keys(prog).length;
-        var total = tasks.length;
+        var info = d.shifts[shift];
+        var done = Object.keys(info.signoffs || {}).length;
+        var total = info.tasks.length;
         var cls = total && done === total ? "full" : (done > 0 ? "part" : "");
         var icon = shift === "morning" ? "☀️" : "🌙";
         stat.appendChild(el("span", "pill " + cls, icon + " " + done + "/" + total));
@@ -611,14 +680,14 @@
 
       var detail = el("div", "store-detail");
       ["morning", "afternoon"].forEach(function (shift) {
-        var tasks = templateFor(dayKey, shift);
-        var prog = getProgress(store, date, shift);
+        var info = d.shifts[shift];
+        var crew = crewFor(store, shift);
         var wrap = el("div", "detail-shift");
-        wrap.appendChild(el("div", "lbl", (shift === "morning" ? "☀️ Morning shift" : "🌙 Afternoon shift")));
+        wrap.appendChild(el("div", "lbl", (shift === "morning" ? "☀️ Morning shift" : "🌙 Afternoon shift") + (crew.length ? " · " + escapeHtml(crew.join(", ")) : "")));
         var ul = el("ul");
-        if (!tasks.length) { ul.appendChild(el("li", null, '<span class="dot"></span><span style="color:var(--ink-soft)">No tasks set</span>')); }
-        tasks.forEach(function (task, i) {
-          var rec = prog[i];
+        if (!info.tasks.length) { ul.appendChild(el("li", null, '<span class="dot"></span><span style="color:var(--ink-soft)">No tasks set</span>')); }
+        info.tasks.forEach(function (task, i) {
+          var rec = (info.signoffs || {})[i];
           var li = el("li", rec ? "d" : "");
           li.appendChild(el("span", "dot"));
           li.appendChild(el("span", null, escapeHtml(task)));
@@ -644,26 +713,27 @@
   });
   $("edDaySel").addEventListener("change", function () { state.edDay = this.value; renderEditor(); });
 
-  function renderEditor() {
-    var tasks = templateFor(state.edDay, state.edShift);
+  async function renderEditor() {
+    state.templates = await apiGetTemplates();
+    var tasks = state.templates[state.edDay + "|" + state.edShift] || DEFAULTS[state.edShift] || [];
     $("edText").value = tasks.join("\n");
   }
   function parseEditor() {
     return $("edText").value.split("\n").map(function (s) { return s.trim(); }).filter(function (s) { return s.length; });
   }
-  $("edSave").addEventListener("click", function () {
-    var t = getTemplates();
-    t[state.edDay + "|" + state.edShift] = parseEditor();
-    save("bw_templates", t);
-    toast("Checklist saved");
+  $("edSave").addEventListener("click", async function () {
+    if (!state.templates) state.templates = await apiGetTemplates();
+    state.templates[state.edDay + "|" + state.edShift] = parseEditor();
+    var shared = await apiSaveTemplates(state.templates);
+    toast(shared ? "Saved — applies to all stores" : "Saved on this device");
     renderOverview();
   });
-  $("edCopyAll").addEventListener("click", function () {
+  $("edCopyAll").addEventListener("click", async function () {
+    if (!state.templates) state.templates = await apiGetTemplates();
     var tasks = parseEditor();
-    var t = getTemplates();
-    for (var d = 0; d < 7; d++) { t[DAYS[d] + "|" + state.edShift] = tasks.slice(); }
-    save("bw_templates", t);
-    toast("Applied to all 7 days (" + (state.edShift === "morning" ? "morning" : "afternoon") + ")");
+    for (var d = 0; d < 7; d++) { state.templates[DAYS[d] + "|" + state.edShift] = tasks.slice(); }
+    var shared = await apiSaveTemplates(state.templates);
+    toast("Applied to all 7 days" + (shared ? " (all stores)" : " (this device)"));
     renderOverview();
   });
 
@@ -676,6 +746,21 @@
   }
 
   // ---- Boot ----
-  getTemplates();
+  function nowShift() {
+    try { var h = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", hour12: false }).format(new Date())) % 24; return h < 13 ? "morning" : "afternoon"; }
+    catch (e) { return "morning"; }
+  }
+  function updateStatusNote() {
+    var n = $("statusNote"); if (!n) return;
+    if (lastShared === true) n.innerHTML = "🟢 <b>Synced across all stores.</b> Nothing is sent to employees — no alerts, no texts.";
+    else if (lastShared === false) n.innerHTML = "🟡 <b>Saving on this device only.</b> Create the database in Vercel to sync all 4 stores. Nothing is sent to employees.";
+    else n.textContent = "Checking connection…";
+  }
+  (function boot() {
+    state.shift = nowShift();
+    Array.prototype.forEach.call($("shiftSeg").children, function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-shift") === state.shift ? "true" : "false"); });
+    loadCrew();
+    apiGetTemplates().then(updateStatusNote);
+  })();
 })();
 </script>
