@@ -46,6 +46,37 @@ module.exports = async (req, res) => {
     out.employeeRecordFields = users.length ? Object.keys(users[0]) : [];
     out.sampleEmployees = users.slice(0, 3).map(maskObj);
 
+    // ---- Summarize custom fields across the whole team (this reveals the
+    //      real role vocabulary: Cashier / Key Holder / Manager, plus store) ----
+    const allUsers = [];
+    for (let offset = 0, guard = 0; guard < 30; guard++) {
+      const r = await ct("/users/v1/users?limit=100&offset=" + offset, key);
+      const batch = pickArray(r.body, ["users", "items", "results"]);
+      allUsers.push.apply(allUsers, batch);
+      if (batch.length < 100) break;
+      offset += 100;
+    }
+    const fieldSummary = {}; // fieldName -> { valueLabel: count }
+    allUsers.forEach((u) => {
+      const cf = Array.isArray(u.customFields) ? u.customFields : [];
+      cf.forEach((f) => {
+        const name = f.name || ("field " + f.customFieldId);
+        let vals = [];
+        if (typeof f.value === "string") vals = [f.value];
+        else if (Array.isArray(f.value)) vals = f.value.map((x) => (x && typeof x === "object" ? (x.value != null ? x.value : (x.name != null ? x.name : JSON.stringify(x))) : String(x)));
+        else if (f.value != null) vals = [String(f.value)];
+        vals = vals.filter(function (v) { return v !== "" && v != null; });
+        if (!vals.length) return;
+        fieldSummary[name] = fieldSummary[name] || {};
+        vals.forEach((v) => { fieldSummary[name][v] = (fieldSummary[name][v] || 0) + 1; });
+      });
+    });
+    out.teamSize = allUsers.length;
+    out.customFieldSummary = Object.keys(fieldSummary).map((name) => ({
+      name: name,
+      values: Object.keys(fieldSummary[name]).map((v) => ({ value: v, count: fieldSummary[name][v] })).sort((a, b) => b.count - a.count),
+    }));
+
     // ---- Schedulers, their jobs (positions), and sample shifts ----
     const sr = await ct("/scheduler/v1/schedulers", key);
     const schedulers = pickArray(sr.body, ["schedulers", "items", "results"]);

@@ -51,12 +51,23 @@
     if(!o.ok){ out.innerHTML='<div class="state">'+esc(o.error||"Couldn\'t read data.")+"</div>"; return; }
 
     var html="";
-    var hasPositions = o.positionsDefined && o.positionsDefined.length;
+    var summary = o.customFieldSummary || [];
+    var hasRoles = summary.length > 0;
 
-    html += '<div class="verdict '+(hasPositions?"yes":"no")+'">'+
-      (hasPositions
-        ? "✅ <b>Positions are defined in your scheduler.</b> If \"Key Holder\" and \"Cashier\" are in the list below, we can route tasks by role."
-        : "Your scheduler didn't return a separate list of positions — so key holder/cashier is likely a <b>field on the person</b> or a <b>group</b>. Check the highlighted fields below.")+"</div>";
+    html += '<div class="verdict '+(hasRoles?"yes":"no")+'">'+
+      (hasRoles
+        ? "✅ <b>Found role/position info on your employees</b> ("+(o.teamSize||0)+" people). The values below are exactly what's stored — look for the field holding Cashier / Key Holder / Manager."
+        : "No custom fields found on employees. We'd use smart groups or add a role field.")+"</div>";
+
+    if (hasRoles) {
+      html += '<div class="card"><h2>What\'s stored on your team (from custom fields)</h2>';
+      summary.forEach(function(f){
+        html += '<div style="margin-bottom:12px;"><div class="k hot" style="margin-bottom:6px;">'+esc(f.name)+'</div>'+
+          f.values.map(function(v){ return '<span class="chip'+(HOT.test(v.value)||HOT.test(f.name)?" hot":"")+'">'+esc(v.value)+' <span style="opacity:.6">×'+v.count+'</span></span>'; }).join("")+
+          '</div>';
+      });
+      html += '</div>';
+    }
 
     if(o.positionsDefined){
       html += '<div class="card"><h2>Positions / jobs defined in your scheduler</h2>'+
