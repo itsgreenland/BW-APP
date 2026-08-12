@@ -60,9 +60,18 @@ Deployed on Vercel (`bw-app-delta.vercel.app`). Key verified. `/api/schedule` +
 Meridian, Rockwell) into morning/afternoon by shift start time. Handles duplicate/stray
 schedules (ignores "Office" + empty "Britton", locks onto the live one).
 
-**Phase 3 — Shared database + logins + auto-assignment** ← next
-All 4 stores share data live; staff & manager logins; the day's checklist auto-assigns
-to whoever Connecteam has scheduled, and only those people get pinged. Webhook keeps sync.
+**Phase 3 — Shared database + schedule-linked app** ✅ core done
+Shared Upstash database live (`/api/data`). Task app reads staff names live from the
+schedule, sign-offs + checklist templates are stored in the shared DB and sync across
+all stores/devices (with automatic on-device fallback). Manager overview pulls live.
+Remaining in this phase: proper staff/manager logins (currently a demo PIN).
+
+**Phase 3b — Notifications (NOT built yet, off by design)**
+Text the scheduled person ~10 min before their shift (8:30 / 1:30) using Connecteam's
+phone numbers + a texting service (Twilio). No notification code exists yet; nothing is
+ever sent to employees until explicitly turned on.
+
+**Phase 4 — Migrate hosting to Cloudflare (free, commercial-OK) before launch; then more apps.**
 
 **Phase 4 — More apps under the same roof**
 The task list is app #1; the platform is built to add more.
