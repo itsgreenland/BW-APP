@@ -21,8 +21,8 @@ const ROSTER = {
 };
 
 function isIgnored(name) {
-  const n = String(name || "").toLowerCase().trim();
-  return n === "office" || n === "job scheduler" || n.indexOf("job scheduler") !== -1;
+  const n = String(name || "").toLowerCase();
+  return n.indexOf("office") !== -1 || n.indexOf("job scheduler") !== -1;
 }
 
 async function ct(path, key) {
@@ -174,20 +174,28 @@ module.exports = async (req, res) => {
 
     // 4) Match each store to a schedule (by name, else by roster) and split shifts
     const storeResults = STORES.map((store) => {
-      let match = schedules.find((sc) => {
+      const roster = ROSTER[store.key];
+      // Every schedule that could be this store: name contains the store word,
+      // or it carries the store's known crew. (A store can have more than one
+      // schedule with the same name — e.g. an old empty one and the live one.)
+      const candidates = schedules.filter((sc) => {
         const nm = String(sc.name || sc.title || "").toLowerCase();
-        return !isIgnored(nm) && nm.indexOf(store.key) !== -1;
+        if (isIgnored(nm)) return false;
+        const id = sc.schedulerId != null ? sc.schedulerId : sc.id;
+        return nm.indexOf(store.key) !== -1 || rosterMatch(id, roster);
       });
-      let how = match ? "name" : null;
-      if (!match && ROSTER[store.key]) {
-        match = schedules.find((sc) => {
-          const nm = String(sc.name || sc.title || "").toLowerCase();
-          if (isIgnored(nm)) return false;
-          const id = sc.schedulerId != null ? sc.schedulerId : sc.id;
-          return rosterMatch(id, ROSTER[store.key]);
-        });
-        if (match) how = "people";
+      // Among candidates, prefer the one that actually has this store's crew,
+      // then the one with the most shifts — that's the live schedule.
+      function score(sc) {
+        const id = String(sc.schedulerId != null ? sc.schedulerId : sc.id);
+        const people = peopleBySchedule[id] || new Set();
+        let rc = 0;
+        if (roster) roster.forEach((r) => { for (const p of people) { if (p.indexOf(r) !== -1) { rc++; break; } } });
+        return rc * 1000 + (shiftsBySchedule[id] || []).length;
       }
+      candidates.sort((a, b) => score(b) - score(a));
+      const match = candidates[0] || null;
+      const how = match ? (String(match.name || match.title || "").toLowerCase().indexOf(store.key) !== -1 ? "name" : "people") : null;
 
       const result = { store: store.label, schedule: null, matchedBy: how, morning: [], afternoon: [], totalShifts: 0 };
       if (!match) return result;
