@@ -130,8 +130,11 @@
     });
     html += "</div>";
 
-    if (out.ignoredSchedules && out.ignoredSchedules.length) {
-      html += '<p class="ignored">Not counted as stores: ' + out.ignoredSchedules.map(esc).join(", ") + "</p>";
+    if (out.allSchedules && out.allSchedules.length) {
+      html += '<div class="ignored"><b>All schedules in your Connecteam</b> (for setup):<br>' +
+        out.allSchedules.map(function (s) {
+          return "• " + esc(s.name) + " — " + s.shiftsToday + " shift(s) today" + (s.ignored ? " (treated as not-a-store)" : "");
+        }).join("<br>") + "</div>";
     }
     if (out.debug) {
       html += '<p class="ignored">Note for setup: some shifts couldn\'t be read (fields: ' + esc((out.debug.unclassifiedShiftKeys||[]).join(", ")) + "). Send this to Claude.</p>";

@@ -2,9 +2,6 @@
 // Reads the live Connecteam schedule, matches each schedule to a store, and
 // sorts scheduled people into morning / afternoon by shift start time.
 // Key is read from CONNECTEAM_API_KEY (server-side only, never sent to browser).
-//
-// Store <-> schedule matching is by name. "Office" schedules are ignored, and
-// "Job Scheduler" (Connecteam's default) matches no store, so it's ignored too.
 
 const BASE = "https://api.connecteam.com";
 const TZ = "America/Chicago"; // Oklahoma City
@@ -16,6 +13,12 @@ const STORES = [
   { key: "meridian", label: "Meridian" },
   { key: "rockwell", label: "Rockwell" },
 ];
+
+// Only these exact schedules are treated as "not a store".
+function isIgnored(name) {
+  const n = String(name || "").toLowerCase().trim();
+  return n === "office" || n === "job scheduler" || n.indexOf("job scheduler") !== -1;
+}
 
 async function ct(path, key) {
   const res = await fetch(BASE + path, { headers: { "X-API-KEY": key, accept: "application/json" } });
@@ -80,7 +83,6 @@ function todayInTZ() {
 module.exports = async (req, res) => {
   const key = process.env.CONNECTEAM_API_KEY;
   const send = (obj) => { res.setHeader("content-type", "application/json"); res.status(200).json(obj); };
-
   if (!key) return send({ ok: false, error: "No CONNECTEAM_API_KEY set on the host." });
 
   const date = (req.query && req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)) ? req.query.date : todayInTZ();
@@ -96,59 +98,61 @@ module.exports = async (req, res) => {
     const sr = await ct("/scheduler/v1/schedulers", key);
     const schedules = pickArray(sr.body, ["schedulers", "items", "results"]);
 
-    // 3) Query window (over-fetch, then filter to the local date)
+    // 3) Fetch today's shifts for EVERY schedule (over-fetch window, filter to local date)
     const [y, m, d] = date.split("-").map(Number);
     const dayStartUtc = Math.floor(Date.UTC(y, m - 1, d, 0, 0, 0) / 1000);
     const qStart = dayStartUtc - 12 * 3600;
     const qEnd = dayStartUtc + 36 * 3600;
 
-    const unmatched = [];
+    const shiftsBySchedule = {};
+    const allSchedules = [];
     const debug = { unclassifiedShiftKeys: null };
 
-    const storeResults = [];
-    for (const store of STORES) {
-      // find a schedule for this store (name contains store key, not an "office")
-      const match = schedules.find((s) => {
-        const nm = String(s.name || s.title || "").toLowerCase();
-        return nm.includes(store.key) && !nm.includes("office");
+    for (const sc of schedules) {
+      const id = sc.schedulerId != null ? sc.schedulerId : sc.id;
+      const name = sc.name || sc.title || "(unnamed)";
+      const shr = await ct(`/scheduler/v1/schedulers/${id}/shifts?startTime=${qStart}&endTime=${qEnd}`, key);
+      const raw = pickArray(shr.body, ["shifts", "items", "results"]);
+      const todays = [];
+      raw.forEach((s) => {
+        const st = shiftStartUnix(s);
+        if (st == null) { if (!debug.unclassifiedShiftKeys) debug.unclassifiedShiftKeys = Object.keys(s); return; }
+        if (localParts(st).date === date) todays.push(s);
       });
+      shiftsBySchedule[String(id)] = todays;
+      allSchedules.push({ name: name, id: id, shiftsToday: todays.length, ignored: isIgnored(name) });
+    }
 
+    // 4) Match each store to a schedule and split into morning / afternoon
+    const storeResults = STORES.map((store) => {
+      const match = schedules.find((sc) => {
+        const nm = String(sc.name || sc.title || "").toLowerCase();
+        return !isIgnored(nm) && nm.indexOf(store.key) !== -1;
+      });
       const result = { store: store.label, schedule: null, morning: [], afternoon: [], totalShifts: 0 };
-      if (!match) { storeResults.push(result); continue; }
+      if (!match) return result;
 
-      const sid = match.schedulerId != null ? match.schedulerId : match.id;
+      const sid = String(match.schedulerId != null ? match.schedulerId : match.id);
       result.schedule = match.name || match.title;
-
-      const shr = await ct(`/scheduler/v1/schedulers/${sid}/shifts?startTime=${qStart}&endTime=${qEnd}`, key);
-      const shifts = pickArray(shr.body, ["shifts", "items", "results"]);
-
-      shifts.forEach((s) => {
-        const start = shiftStartUnix(s);
-        if (start == null) { if (!debug.unclassifiedShiftKeys) debug.unclassifiedShiftKeys = Object.keys(s); return; }
-        const lp = localParts(start);
-        if (lp.date !== date) return; // shift is on another day
+      (shiftsBySchedule[sid] || []).forEach((s) => {
+        const lp = localParts(shiftStartUnix(s));
         result.totalShifts++;
         const bucket = lp.hour < MORNING_BEFORE_HOUR ? result.morning : result.afternoon;
         const ids = shiftUserIds(s);
-        if (!ids.length) {
-          bucket.push({ name: "(open shift — nobody assigned)", start: lp.label, open: true });
-        } else {
-          ids.forEach((id) => bucket.push({ name: nameById[String(id)] || ("User " + id), start: lp.label }));
-        }
+        if (!ids.length) bucket.push({ name: "(open shift — nobody assigned)", start: lp.label, open: true });
+        else ids.forEach((id) => bucket.push({ name: nameById[String(id)] || ("User " + id), start: lp.label }));
       });
-
-      storeResults.push(result);
-    }
-
-    // note any real schedules we intentionally ignored
-    schedules.forEach((s) => {
-      const nm = String(s.name || s.title || "");
-      const low = nm.toLowerCase();
-      const isStore = STORES.some((st) => low.includes(st.key)) && !low.includes("office");
-      if (!isStore) unmatched.push(nm);
+      return result;
     });
 
-    send({ ok: true, date: date, timezone: TZ, stores: storeResults, ignoredSchedules: unmatched, debug: debug.unclassifiedShiftKeys ? debug : undefined });
+    send({
+      ok: true,
+      date: date,
+      timezone: TZ,
+      stores: storeResults,
+      allSchedules: allSchedules,
+      debug: debug.unclassifiedShiftKeys ? debug : undefined,
+    });
   } catch (e) {
     send({ ok: false, error: e.message });
   }
