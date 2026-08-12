@@ -48,21 +48,24 @@ function pagingTotal(body) {
   return null;
 }
 
-// Page through a list endpoint using limit/offset (the common Connecteam shape).
+// Fetch a list endpoint. Do a plain request first (known to work), then page
+// with offset ONLY if the response advertises more via a paging total — this
+// avoids sending params to endpoints that might reject them.
 async function ctPaged(path, key, arrayKeys) {
-  const all = [];
-  const limit = 100;
-  let offset = 0;
-  for (let guard = 0; guard < 60; guard++) {
+  const first = await ct(path, key);
+  if (!first.ok) return [];
+  let all = pickArray(first.body, arrayKeys);
+  const total = pagingTotal(first.body);
+  if (total == null || all.length >= total || all.length === 0) return all;
+  let offset = all.length;
+  for (let guard = 0; guard < 60 && offset < total; guard++) {
     const sep = path.indexOf("?") === -1 ? "?" : "&";
-    const r = await ct(path + sep + "limit=" + limit + "&offset=" + offset, key);
+    const r = await ct(path + sep + "offset=" + offset + "&limit=100", key);
     if (!r.ok) break;
     const arr = pickArray(r.body, arrayKeys);
-    all.push.apply(all, arr);
-    const total = pagingTotal(r.body);
-    if (arr.length < limit) break;
-    if (total != null && all.length >= total) break;
-    offset += limit;
+    if (!arr.length) break;
+    all = all.concat(arr);
+    offset += arr.length;
   }
   return all;
 }
