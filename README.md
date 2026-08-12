@@ -54,10 +54,13 @@ _Sources: Connecteam developer docs (`developer.connecteam.com`), Connecteam Hel
 **Phase 1 — Task List prototype** ✅ done
 Front-end complete: staff + manager views, sign-off, editable checklists (`index.html`).
 
-**Phase 2 — Hosting + Connecteam key verification** ← in progress (Lane A)
-Deploy to Vercel; verify the Connecteam key works end-to-end via a live connection check.
+**Phase 2 — Hosting + live Connecteam read** ✅ done
+Deployed on Vercel (`bw-app-delta.vercel.app`). Key verified. `/api/schedule` +
+`crew.html` read the live schedule and correctly split all 4 stores (Hefner, Britton,
+Meridian, Rockwell) into morning/afternoon by shift start time. Handles duplicate/stray
+schedules (ignores "Office" + empty "Britton", locks onto the live one).
 
-**Phase 3 — Shared database + logins + auto-assignment**
+**Phase 3 — Shared database + logins + auto-assignment** ← next
 All 4 stores share data live; staff & manager logins; the day's checklist auto-assigns
 to whoever Connecteam has scheduled, and only those people get pinged. Webhook keeps sync.
 
