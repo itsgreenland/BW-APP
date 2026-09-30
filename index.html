@@ -243,6 +243,32 @@
     border-top: 1px dashed var(--line); padding-top: 16px; line-height: 1.6;
   }
   .hidden { display: none !important; }
+
+  /* Key Holder reorder card */
+  .kh { background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; margin-top: 16px; }
+  .kh-head { display: flex; justify-content: space-between; align-items: flex-start; }
+  .kh-title { font-weight: 800; font-size: 15px; color: var(--brand-ink); }
+  .kh-sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; }
+  .kh-over { color: #b3341f; font-weight: 800; }
+  .kh-cats { display: grid; gap: 10px; margin-top: 14px; }
+  .kh-cat { border: 1px solid var(--line); border-radius: 11px; padding: 11px 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .kh-cat.ordered { background: var(--good-soft); border-color: color-mix(in srgb, var(--good) 30%, var(--line)); }
+  .kh-cat.cooldown { opacity: .55; }
+  .kh-cat.overdue { border-color: #b3341f; background: color-mix(in srgb, #b3341f 8%, var(--surface)); }
+  .kh-cat-name { font-weight: 700; font-size: 14.5px; }
+  .kh-cat-note { display: block; font-size: 12px; color: var(--ink-soft); }
+  .kh-cat-state { font-size: 13px; }
+  .kh-cat-state.ok { color: var(--good); font-weight: 600; }
+  .kh-cat-state.muted { color: var(--ink-soft); }
+  .kh-cat-actions { display: flex; gap: 8px; align-items: center; }
+  .kh-btn { border: 0; border-radius: 9px; font: inherit; font-weight: 700; font-size: 13px; padding: 8px 12px; cursor: pointer; }
+  .kh-btn.ordered { background: var(--brand); color: #fff; }
+  .kh-btn.skip { background: var(--surface-2); color: var(--ink-soft); }
+  .kh-undo { color: var(--brand); cursor: pointer; font-weight: 600; margin-left: 6px; }
+  .kh-manual { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 10px; }
+  .kh-manual summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--brand); }
+  .kh-manual-body { font-size: 13px; color: var(--ink-soft); margin-top: 8px; line-height: 1.6; }
+  .kh-load { color: var(--ink-soft); font-size: 13.5px; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -299,6 +325,8 @@
         <p id="signoffText"></p>
       </div>
 
+      <div id="khCard" class="kh hidden"></div>
+
       <p class="who">Signed in as <b id="whoName">—</b> · <a id="switchName">not you?</a></p>
     </div>
   </section>
@@ -317,6 +345,7 @@
     <div id="mgrPanel" class="hidden">
       <div class="tabs" role="group">
         <button data-tab="overview" aria-pressed="true">Today's overview</button>
+        <button data-tab="reorders" aria-pressed="false">Reorders</button>
         <button data-tab="editor" aria-pressed="false">Edit checklists</button>
       </div>
 
@@ -331,6 +360,8 @@
         </div>
         <div class="mgr-grid" id="mgrGrid"></div>
       </div>
+
+      <div id="tabReorder" class="hidden"></div>
 
       <div id="tabEditor" class="editor hidden">
         <div class="context" style="margin-top:16px;">
@@ -460,6 +491,74 @@
     catch (e) { return null; }
   }
 
+  // ---- Key Holder reorders ----
+  async function apiReorder(store, date) {
+    try { var r = await fetch("/api/reorder?store=" + encodeURIComponent(store) + "&date=" + date, { cache: "no-store" }); return await r.json(); }
+    catch (e) { return null; }
+  }
+  async function apiReorderPost(store, date, category, action, by) {
+    try {
+      var r = await fetch("/api/reorder", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ store: store, date: date, category: category, action: action, by: by }) });
+      return await r.json();
+    } catch (e) { return null; }
+  }
+  async function apiReorderOverview(date) {
+    try { var r = await fetch("/api/reorder?overview=1&date=" + date, { cache: "no-store" }); return await r.json(); }
+    catch (e) { return null; }
+  }
+  function fmtDate(iso) {
+    try { var p = String(iso).split("-"); return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); }
+    catch (e) { return iso; }
+  }
+
+  async function renderKeyHolder() {
+    var card = $("khCard");
+    if (!isKeyHolder(state.role)) { card.classList.add("hidden"); card.innerHTML = ""; return; }
+    card.classList.remove("hidden");
+    card.innerHTML = '<div class="kh-load">Loading key-holder tasks…</div>';
+    var data = await apiReorder(state.store, state.date);
+    if (!data || !data.ok) { card.innerHTML = '<div class="kh-load">Couldn\'t load reorders right now.</div>'; return; }
+    paintReorder(card, data);
+  }
+
+  function paintReorder(card, data) {
+    var html = '<div class="kh-head"><div>' +
+      '<div class="kh-title">🔑 Key Holder · Reorders</div>' +
+      '<div class="kh-sub">Week of ' + esc(fmtDate(data.weekMonday)) + ' · due ' + esc(fmtDate(data.dueDate)) + ' 12:00pm' +
+      (data.pastDue ? ' · <span class="kh-over">past due</span>' : '') + '</div></div></div>';
+    html += '<div class="kh-cats">';
+    data.categories.forEach(function (c) {
+      html += '<div class="kh-cat ' + c.status + (c.overdue ? ' overdue' : '') + '">';
+      html += '<div class="kh-cat-main"><span class="kh-cat-name">' + esc(c.label) + '</span>' + (c.note ? '<span class="kh-cat-note">' + esc(c.note) + '</span>' : '') + '</div>';
+      if (c.status === "cooldown") {
+        html += '<div class="kh-cat-state muted">Ordered last week — skip</div>';
+      } else if (c.status === "ordered") {
+        html += '<div class="kh-cat-state ok">✓ Ordered' + (c.by ? ' · ' + esc(c.by) : '') + (c.at ? ' · ' + fmtTime(c.at) : '') + ' <a class="kh-undo" data-cat="' + c.key + '" data-action="clear">undo</a></div>';
+      } else if (c.status === "skip") {
+        html += '<div class="kh-cat-state muted">Not needed this week <a class="kh-undo" data-cat="' + c.key + '" data-action="clear">undo</a></div>';
+      } else {
+        html += '<div class="kh-cat-actions">' + (c.overdue ? '<span class="kh-over">OVERDUE</span>' : '') +
+          '<button class="kh-btn ordered" data-cat="' + c.key + '" data-action="ordered">Ordered ✓</button>' +
+          '<button class="kh-btn skip" data-cat="' + c.key + '" data-action="skip">Not needed</button></div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '<details class="kh-manual"><summary>📖 How to do a reorder</summary><div class="kh-manual-body">Step-by-step instructions go here — we\'ll fill this in so nobody has to remember it. (Chemical orders go through Global.)</div></details>';
+    card.innerHTML = html;
+  }
+
+  function escClosest(target) { return target.closest ? target.closest("[data-action]") : null; }
+  $("khCard").addEventListener("click", async function (e) {
+    var t = escClosest(e.target); if (!t) return;
+    var cat = t.getAttribute("data-cat"), action = t.getAttribute("data-action");
+    var data = await apiReorderPost(state.store, state.date, cat, action, state.name);
+    if (data && data.ok) {
+      paintReorder($("khCard"), data);
+      toast(action === "ordered" ? "Marked ordered" : action === "skip" ? "Marked not needed" : "Reset");
+    } else { toast("Couldn't save"); }
+  });
+
   // ---- State ----
   var state = {
     shift: "morning",
@@ -499,24 +598,27 @@
     $("edDaySel").value = state.edDay;
   })();
 
-  // ---- Load who's scheduled (staff names come from Connecteam) ----
+  // ---- Load who's scheduled (staff names + roles come from Connecteam) ----
+  function isKeyHolder(role) { return /key/i.test(role || ""); }
   async function loadCrew() {
     var sel = $("nameSel"); sel.innerHTML = "";
     var loading = el("option"); loading.value = ""; loading.textContent = "Loading who's on…"; sel.appendChild(loading);
     var sched = await apiSchedule(state.date);
     sel.innerHTML = "";
-    var names = [];
+    var crew = [];
     if (sched && sched.ok) {
       var st = (sched.stores || []).filter(function (x) { return x.store === state.store; })[0];
       if (st) {
         var arr = state.shift === "morning" ? st.morning : st.afternoon;
-        names = (arr || []).filter(function (p) { return !p.open; }).map(function (p) { return p.name; });
+        crew = (arr || []).filter(function (p) { return !p.open; });
       }
     }
+    state.crewByName = {};
+    crew.forEach(function (p) { state.crewByName[p.name] = p; });
     var ph = el("option"); ph.value = "";
-    ph.textContent = names.length ? "Select your name…" : "Nobody scheduled — pick anyway…";
+    ph.textContent = crew.length ? "Select your name…" : "Nobody scheduled — pick anyway…";
     sel.appendChild(ph);
-    names.forEach(function (n) { var o = el("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
+    crew.forEach(function (p) { var o = el("option"); o.value = p.name; o.textContent = p.name + (p.role ? " · " + p.role : ""); sel.appendChild(o); });
     var man = el("option"); man.value = "__manual__"; man.textContent = "＋ Enter a name manually"; sel.appendChild(man);
   }
 
@@ -530,23 +632,26 @@
       if (checklistOpen()) renderChecklist();
     });
   });
-  $("storeSel").addEventListener("change", function () { state.store = this.value; loadCrew(); if (checklistOpen()) renderChecklist(); });
-  $("dateSel").addEventListener("change", function () { state.date = this.value; loadCrew(); if (checklistOpen()) renderChecklist(); });
+  $("storeSel").addEventListener("change", function () { state.store = this.value; loadCrew(); if (checklistOpen()) { renderChecklist(); renderKeyHolder(); } });
+  $("dateSel").addEventListener("change", function () { state.date = this.value; loadCrew(); if (checklistOpen()) { renderChecklist(); renderKeyHolder(); } });
 
   $("startBtn").addEventListener("click", function () {
     var n = $("nameSel").value;
     if (n === "__manual__") { n = (window.prompt("Enter your name:") || "").trim(); if (!n) return; }
     if (!n) { toast("Pick your name first"); return; }
     state.name = n;
-    $("whoName").textContent = n;
+    state.role = (state.crewByName && state.crewByName[n] && state.crewByName[n].role) || "";
+    $("whoName").textContent = n + (state.role ? " · " + state.role : "");
     $("empGate").classList.add("hidden");
     $("empChecklist").classList.remove("hidden");
     renderChecklist();
+    renderKeyHolder();
   });
   $("switchName").addEventListener("click", function () {
-    state.name = null;
+    state.name = null; state.role = "";
     $("empChecklist").classList.add("hidden");
     $("empGate").classList.remove("hidden");
+    $("khCard").classList.add("hidden");
     loadCrew();
   });
 
@@ -636,9 +741,37 @@
       var tab = btn.getAttribute("data-tab");
       Array.prototype.forEach.call(document.querySelectorAll(".tabs button"), function (b) { b.setAttribute("aria-pressed", b === btn ? "true" : "false"); });
       $("tabOverview").classList.toggle("hidden", tab !== "overview");
+      $("tabReorder").classList.toggle("hidden", tab !== "reorders");
       $("tabEditor").classList.toggle("hidden", tab !== "editor");
+      if (tab === "reorders") renderReorders();
     });
   });
+
+  async function renderReorders() {
+    var box = $("tabReorder");
+    box.innerHTML = '<div class="empty">Loading…</div>';
+    var data = await apiReorderOverview($("mgrDate").value || todayISO());
+    if (!data || !data.ok) { box.innerHTML = '<div class="empty">Couldn\'t load reorders.</div>'; return; }
+    var html = '<p class="hint" style="margin-top:16px;">Week of ' + esc(fmtDate(data.weekMonday)) + ' · your private view of all 4 stores. ' +
+      (data.anyOverdue ? '<b style="color:#b3341f">Something is overdue.</b>' : 'All on track.') + '</p><div class="mgr-grid">';
+    data.stores.forEach(function (s) {
+      html += '<div class="store-card open"><div class="store-head"><h3>' + esc(s.store) + '</h3>' + (s.anyOverdue ? '<span class="pill part">overdue</span>' : '<span class="pill full">on track</span>') + '</div>';
+      html += '<div class="store-detail"><ul style="list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px;">';
+      s.categories.forEach(function (c) {
+        var label = c.status === "ordered" ? ("✓ ordered" + (c.by ? " · " + esc(c.by) : "") + (c.at ? " · " + fmtTime(c.at) : ""))
+          : c.status === "skip" ? "not needed this week"
+          : c.status === "cooldown" ? "ordered last week"
+          : c.overdue ? "OVERDUE — not ordered" : "pending";
+        var color = c.status === "ordered" ? "var(--good)" : (c.overdue ? "#b3341f" : "var(--line)");
+        html += '<li style="display:flex;gap:9px;font-size:13.5px;align-items:baseline;"><span class="dot" style="background:' + color + '"></span>' +
+          '<span style="min-width:78px;font-weight:600;">' + esc(c.label) + '</span>' +
+          '<span style="color:' + (c.overdue ? "#b3341f" : "var(--ink-soft)") + ';font-weight:' + (c.overdue ? "700" : "400") + '">' + esc(label) + '</span></li>';
+      });
+      html += '</ul></div></div>';
+    });
+    html += '</div>';
+    box.innerHTML = html;
+  }
   $("mgrDate").addEventListener("change", renderOverview);
   $("mgrToday").addEventListener("click", function () { $("mgrDate").value = todayISO(); renderOverview(); });
 

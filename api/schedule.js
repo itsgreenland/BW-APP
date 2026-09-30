@@ -79,6 +79,19 @@ function userName(u) {
   return n || u.email || ("User " + (u.userId != null ? u.userId : u.id));
 }
 
+// Role/position from the employee's "Title"-style custom field.
+function userRole(u) {
+  const cf = u && Array.isArray(u.customFields) ? u.customFields : [];
+  for (const f of cf) {
+    const nm = (f.name || "").toLowerCase();
+    if (/title|position|role/.test(nm)) {
+      if (typeof f.value === "string") return f.value;
+      if (Array.isArray(f.value)) return f.value.map((x) => (x && typeof x === "object" ? (x.value != null ? x.value : x.name) : x)).join(", ");
+    }
+  }
+  return "";
+}
+
 function shiftUserIds(s) {
   const cands = s.assignedUserIds || s.userIds || s.assignedUsers || s.users || s.assignments;
   if (!Array.isArray(cands)) return [];
@@ -125,7 +138,8 @@ module.exports = async (req, res) => {
     // 1) Users map (id -> name), paged
     const users = await ctPaged("/users/v1/users", key, ["users", "items", "results"]);
     const nameById = {};
-    users.forEach((u) => { const id = u.userId != null ? u.userId : u.id; if (id != null) nameById[String(id)] = userName(u); });
+    const roleById = {};
+    users.forEach((u) => { const id = u.userId != null ? u.userId : u.id; if (id != null) { nameById[String(id)] = userName(u); roleById[String(id)] = userRole(u); } });
 
     // 2) Schedules, paged (this is the fix if some were being cut off)
     const schedules = await ctPaged("/scheduler/v1/schedulers", key, ["schedulers", "items", "results"]);
@@ -208,7 +222,7 @@ module.exports = async (req, res) => {
         const bucket = lp.hour < MORNING_BEFORE_HOUR ? result.morning : result.afternoon;
         const ids = shiftUserIds(s);
         if (!ids.length) bucket.push({ name: "(open shift — nobody assigned)", start: lp.label, open: true });
-        else ids.forEach((id) => bucket.push({ name: nameById[String(id)] || ("User " + id), start: lp.label }));
+        else ids.forEach((id) => bucket.push({ name: nameById[String(id)] || ("User " + id), start: lp.label, role: roleById[String(id)] || "", userId: id }));
       });
       return result;
     });
