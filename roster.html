@@ -1,0 +1,61 @@
+<title>Beauty World — Key Holder Roster</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<style>
+  :root{--brand:#6d2e5b;--brand-ink:#4c1f40;--accent:#b8891f;--ground:#faf6f4;--surface:#fff;--surface-2:#f4edea;--ink:#241e22;--ink-soft:#6b5f66;--line:#e7dcd8;--good:#1f8a52;--good-soft:#dcf1e5;--shadow:0 1px 2px rgba(36,30,34,.06),0 8px 24px rgba(36,30,34,.06)}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--brand:#d98cc4;--brand-ink:#eab6dc;--accent:#e5b64a;--ground:#171317;--surface:#211b20;--surface-2:#2a232a;--ink:#f3ebef;--ink-soft:#b6a7b0;--line:#392f38;--good:#55c98a;--good-soft:#17331f;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35)}}
+  :root[data-theme="dark"]{--brand:#d98cc4;--brand-ink:#eab6dc;--accent:#e5b64a;--ground:#171317;--surface:#211b20;--surface-2:#2a232a;--ink:#f3ebef;--ink-soft:#b6a7b0;--line:#392f38;--good:#55c98a;--good-soft:#17331f;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35)}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+  .wrap{max-width:640px;margin:0 auto;padding:26px 16px 64px}
+  h1{font-size:19px;margin:0 0 4px}
+  .sub{color:var(--ink-soft);font-size:13px;margin-bottom:18px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+  .card h2{margin:0 0 4px;font-size:16px}
+  .grp{margin-top:12px}
+  .grp .lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:7px}
+  .grp.kh .lbl{color:var(--good)}
+  .grp.other .lbl{color:var(--ink-soft)}
+  .person{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+  .person:first-of-type{border-top:0}
+  .person .role{color:var(--ink-soft);font-size:12.5px}
+  .kh-chip{display:inline-block;background:var(--good-soft);color:var(--good);border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700}
+  .summary{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px;margin-bottom:16px;font-size:14px}
+  .summary b{color:var(--brand-ink)}
+  .warn{color:var(--accent);font-size:12.5px;margin-top:6px}
+  .state{padding:44px;text-align:center;color:var(--ink-soft)}
+  .foot{margin-top:18px;text-align:center;font-size:12.5px;color:var(--ink-soft)}.foot a{color:var(--brand);text-decoration:none;font-weight:600}
+</style>
+
+<div class="wrap">
+  <h1>Key Holder Roster</h1>
+  <div class="sub">Pulled live from Connecteam — verify who's flagged as a key holder, per location.</div>
+  <div id="out"><div class="state">Reading your team…</div></div>
+  <p class="foot"><a href="/index.html">Task app</a> · <a href="/inspect.html">Data inspector</a></p>
+</div>
+
+<script>
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+  fetch("/api/roster",{cache:"no-store"}).then(function(r){return r.json();}).then(function(o){
+    var out=document.getElementById("out");
+    if(!o.ok){ out.innerHTML='<div class="state">'+esc(o.error||"Couldn\'t read the team.")+"</div>"; return; }
+
+    var html='<div class="summary"><b>'+o.keyHolderTotal+'</b> key holders across <b>'+o.activeEmployees+'</b> active employees. '+
+      'Anyone whose Connecteam <b>Title</b> contains "key" is treated as a key holder.'+
+      '<div class="warn">If someone is in the wrong group, their Title in Connecteam is the thing to fix (or tell me the exact word you use).</div></div>';
+
+    o.locations.forEach(function(loc){
+      html+='<div class="card"><h2>'+esc(loc.location)+'</h2>';
+      html+='<div class="grp kh"><div class="lbl">🔑 Key holders ('+loc.keyHolders.length+')</div>';
+      if(!loc.keyHolders.length){ html+='<div class="person" style="color:var(--ink-soft)">— none flagged here</div>'; }
+      loc.keyHolders.forEach(function(p){ html+='<div class="person"><span>'+esc(p.name)+'</span><span class="kh-chip">'+esc(p.role)+'</span></div>'; });
+      html+='</div>';
+      html+='<div class="grp other"><div class="lbl">Everyone else ('+loc.others.length+')</div>';
+      if(!loc.others.length){ html+='<div class="person" style="color:var(--ink-soft)">— none</div>'; }
+      loc.others.forEach(function(p){ html+='<div class="person"><span>'+esc(p.name)+'</span><span class="role">'+esc(p.role)+'</span></div>'; });
+      html+='</div></div>';
+    });
+    out.innerHTML=html;
+  }).catch(function(){
+    document.getElementById("out").innerHTML='<div class="state">Couldn\'t reach the roster. If you just deployed, give it a minute.</div>';
+  });
+</script>
